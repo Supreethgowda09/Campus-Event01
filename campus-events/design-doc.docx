@@ -1,0 +1,116 @@
+Design Document – Campus Event Management Platform (Event Reporting System)
+________________________________________
+1. Introduction
+This document describes the design of a Campus Event Management Platform, focusing on the Event Reporting System.
+•	Admin Portal (Web): Used by college staff to create and manage events such as hackathons, workshops, tech talks, and fests.
+•	Student App (Mobile): Used by students to browse events, register, check-in for attendance, and provide feedback.
+The reporting system tracks event popularity, student participation, attendance, and feedback scores.
+________________________________________
+2. Assumptions & Decisions
+•	Each college has its own students and events.
+•	Event IDs are unique per college, not globally.
+•	Feedback is optional but rated 1–5.
+•	Duplicate registrations are not allowed.
+•	Cancelled events are excluded from reporting.
+•	Late attendance check-ins are recorded but may be flagged.
+•	Scale: ~50 colleges × 500 students each × 20 events/semester (~500,000 records/year).
+•	A single shared database is used with college_id to separate college data.
+________________________________________
+3. Data to Track
+1.	Event Creation: title, type, date, venue, created by staff.
+2.	Student Registration: student selects event to attend.
+3.	Attendance: student check-in on event day.
+4.	Feedback: student submits rating (1–5) and optional comment.
+________________________________________
+4. Database Schema
+Tables
+Table	Columns & Description
+College	college_id (PK), name, location
+Student	student_id (PK), college_id (FK), name, email, year
+Event	event_id (PK), college_id (FK), title, type, date, venue, status
+Registration	registration_id (PK), student_id (FK), event_id (FK), timestamp
+Attendance	attendance_id (PK), student_id (FK), event_id (FK), checkin_time
+Feedback	feedback_id (PK), student_id (FK), event_id (FK), rating (1–5), comments
+Relationships / ER Diagram (text version)
+College 1 --- * Student
+College 1 --- * Event
+Student * --- * Event (through Registration)
+Event 1 --- * Attendance
+Event 1 --- * Feedback
+________________________________________
+5. API Design
+Event Management
+•	POST /events → Create an event
+•	{ "college_id": 1, "title": "Hackathon", "type": "Workshop", "date": "2025-10-10", "venue": "Hall A" }
+•	GET /events?college_id=1 → List events for a college
+Registration
+•	POST /events/{event_id}/register → Register student
+•	{ "student_id": 101 }
+•	GET /students/{student_id}/registrations → List events student registered for
+Attendance
+•	POST /events/{event_id}/attendance → Mark attendance
+•	{ "student_id": 101, "checkin_time": "2025-10-10T09:00" }
+Feedback
+•	POST /events/{event_id}/feedback → Submit feedback
+•	{ "student_id": 101, "rating": 5, "comments": "Great event!" }
+Reports
+•	GET /reports/event-popularity → Events sorted by registrations
+•	GET /reports/attendance → Attendance percentage per event
+•	GET /reports/feedback → Average feedback score per event
+•	GET /reports/student-participation → Number of events attended per student
+•	GET /reports/top-students → Top 3 students by attendance
+________________________________________
+6. Workflows
+Registration → Attendance → Reporting
+1.	Student browses events → selects → clicks Register.
+2.	System stores registration in Registration table.
+3.	On event day, student checks in → entry added in Attendance.
+4.	After event, student submits feedback → stored in Feedback.
+5.	Reports generated using Registration, Attendance, Feedback tables.
+Sequence Diagram (text version)
+Student -> System: Register for Event
+System -> Registration Table: Store Registration
+Student -> System: Check-in
+System -> Attendance Table: Store Check-in
+Student -> System: Submit Feedback
+System -> Feedback Table: Store Feedback
+Admin -> System: Generate Reports
+________________________________________
+7. Edge Cases
+•	Duplicate Registration → rejected with error.
+•	Cancelled Event → status = cancelled, excluded from reports.
+•	Missing Feedback → average rating calculated excluding NULLs.
+•	Late Check-ins → flagged in attendance report.
+________________________________________
+8. Sample Reports
+1.	Event Popularity
+SELECT e.title, COUNT(r.registration_id) AS total_registrations
+FROM Event e
+LEFT JOIN Registration r ON e.event_id = r.event_id
+GROUP BY e.event_id
+ORDER BY total_registrations DESC;
+2.	Attendance Percentage
+SELECT e.title,
+       COUNT(a.attendance_id)*100.0/COUNT(r.registration_id) AS attendance_percentage
+FROM Event e
+LEFT JOIN Registration r ON e.event_id = r.event_id
+LEFT JOIN Attendance a ON r.student_id = a.student_id AND r.event_id = a.event_id
+GROUP BY e.event_id;
+3.	Average Feedback
+SELECT e.title, AVG(f.rating) AS avg_rating
+FROM Event e
+LEFT JOIN Feedback f ON e.event_id = f.event_id
+GROUP BY e.event_id;
+4.	Student Participation
+SELECT s.name, COUNT(a.attendance_id) AS events_attended
+FROM Student s
+LEFT JOIN Attendance a ON s.student_id = a.student_id
+GROUP BY s.student_id;
+5.	Top 3 Most Active Students
+SELECT s.name, COUNT(a.attendance_id) AS events_attended
+FROM Student s
+LEFT JOIN Attendance a ON s.student_id = a.student_id
+GROUP BY s.student_id
+ORDER BY events_attended DESC
+LIMIT 3;
+
